@@ -3,6 +3,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -115,3 +116,82 @@ def test_stats_with_empty_store_returns_zero_zero(tmp_path, monkeypatch) -> None
 
     assert response.status_code == 200
     assert response.json() == {"total": 0, "bytes": 0}
+
+
+def test_recovery_rebuilds_index_for_existing_events(tmp_path) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> None:
+        await store.append({"x": 1})
+        await store.append({"likerName": "Chidé 🎉"})
+        await store.append({"x": 3})
+
+    asyncio.run(append_events())
+    original_index = dict(store.index)
+
+    recovered_store = EventStore(log_path)
+    recovered_count = recovered_store.recover()
+
+    assert recovered_count == len(original_index)
+    for event_id, entry in original_index.items():
+        assert recovered_store.index[event_id] == entry
+
+
+def test_recovery_handles_missing_trailing_newline(tmp_path) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> list[dict[str, Any]]:
+        return [
+            await store.append({"x": 1}),
+            await store.append({"likerName": "Chidé 🎉"}),
+        ]
+
+    stored_events = asyncio.run(append_events())
+    raw = log_path.read_bytes()
+    log_path.write_bytes(raw[:-1])
+
+    recovered_store = EventStore(log_path)
+    recovered_count = recovered_store.recover()
+
+    assert recovered_count == len(stored_events)
+    assert recovered_store.get(stored_events[-1]["id"]) == stored_events[-1]
+
+
+def test_recovery_logs_correct_count(tmp_path, capsys) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> None:
+        await store.append({"x": 1})
+        await store.append({"likerName": "Chidé 🎉"})
+
+    asyncio.run(append_events())
+
+    recovered_store = EventStore(log_path)
+    recovered_store.recover()
+
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "Recovered 2 events from events.log"
+
+
+def test_full_restart_round_trip(tmp_path) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> list[dict[str, Any]]:
+        return [
+            await store.append({"x": 1}),
+            await store.append({"likerName": "Chidé 🎉"}),
+            await store.append({"x": 3}),
+        ]
+
+    stored_events = asyncio.run(append_events())
+
+    recovered_store = EventStore(log_path)
+    recovered_count = recovered_store.recover()
+
+    assert recovered_count == len(stored_events)
+    for stored_event in stored_events:
+        assert recovered_store.get(stored_event["id"]) == stored_event

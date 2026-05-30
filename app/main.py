@@ -1,11 +1,22 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import Body, FastAPI, HTTPException, status
 
 from app.event_store import EventStore
 
-app = FastAPI()
 event_store = EventStore()
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Recover the event index before the API starts serving requests."""
+    event_store.recover()
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
 
 
 @app.post("/events", status_code=status.HTTP_201_CREATED)

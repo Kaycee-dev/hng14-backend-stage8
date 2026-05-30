@@ -49,3 +49,32 @@ class EventStore:
             raw = log_file.read(length)
 
         return cast(dict[str, Any], json.loads(raw.decode("utf-8")))
+
+    def recover(self) -> int:
+        """Rebuild the in-memory byte index from the append-only log."""
+        self.index.clear()
+
+        if not self.log_path.exists():
+            print("Recovered 0 events from events.log", flush=True)
+            return 0
+
+        recovered_count = 0
+        offset = 0
+
+        with self.log_path.open("rb") as log_file:
+            for raw_line in log_file:
+                line_len = len(raw_line)
+                content = raw_line[:-1] if raw_line.endswith(b"\n") else raw_line
+                length = len(content)
+
+                if length == 0:
+                    offset += line_len
+                    continue
+
+                event = json.loads(content.decode("utf-8"))
+                self.index[event["id"]] = (offset, length)
+                recovered_count += 1
+                offset += line_len
+
+        print(f"Recovered {recovered_count} events from events.log", flush=True)
+        return recovered_count
