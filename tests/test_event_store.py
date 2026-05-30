@@ -159,6 +159,31 @@ def test_recovery_handles_missing_trailing_newline(tmp_path) -> None:
     assert recovered_store.get(stored_events[-1]["id"]) == stored_events[-1]
 
 
+def test_recovery_skips_corrupt_trailing_line(tmp_path, capsys) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> list[dict[str, Any]]:
+        return [
+            await store.append({"x": 1}),
+            await store.append({"likerName": "Chidé 🎉"}),
+        ]
+
+    stored_events = asyncio.run(append_events())
+    with log_path.open("ab") as log_file:
+        log_file.write(b'{"x":3')
+
+    recovered_store = EventStore(log_path)
+    recovered_count = recovered_store.recover()
+
+    captured = capsys.readouterr()
+    assert recovered_count == 2
+    assert captured.out.strip() == "Recovered 2 events from events.log"
+    assert captured.err.strip() == "Skipped 1 incomplete trailing record in events.log"
+    for stored_event in stored_events:
+        assert recovered_store.get(stored_event["id"]) == stored_event
+
+
 def test_recovery_logs_correct_count(tmp_path, capsys) -> None:
     log_path = tmp_path / "events.log"
     store = EventStore(log_path)

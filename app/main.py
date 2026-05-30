@@ -38,5 +38,4 @@ async def get_event(event_id: str) -> dict[str, Any]:
 @app.get("/stats")
 async def get_stats() -> dict[str, int]:
     """Return the in-memory event count and on-disk log size."""
-    bytes_written = event_store.log_path.stat().st_size if event_store.log_path.exists() else 0
-    return {"total": len(event_store.index), "bytes": bytes_written}
+    return await event_store.stats()

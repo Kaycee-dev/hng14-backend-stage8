@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,12 @@ class EventStore:
 
         return cast(dict[str, Any], json.loads(raw.decode("utf-8")))
 
+    async def stats(self) -> dict[str, int]:
+        """Return an atomic snapshot of event count and log byte size."""
+        async with self._lock:
+            bytes_written = self.log_path.stat().st_size if self.log_path.exists() else 0
+            return {"total": len(self.index), "bytes": bytes_written}
+
     def recover(self) -> int:
         """Rebuild the in-memory byte index from the append-only log."""
         self.index.clear()
@@ -62,19 +69,35 @@ class EventStore:
         offset = 0
 
         with self.log_path.open("rb") as log_file:
-            for raw_line in log_file:
+            raw_line = log_file.readline()
+            while raw_line:
                 line_len = len(raw_line)
                 content = raw_line[:-1] if raw_line.endswith(b"\n") else raw_line
                 length = len(content)
+                next_line = log_file.readline()
+                is_last_line = not next_line
 
                 if length == 0:
                     offset += line_len
+                    raw_line = next_line
                     continue
 
-                event = json.loads(content.decode("utf-8"))
+                try:
+                    event = json.loads(content.decode("utf-8"))
+                except (json.JSONDecodeError, UnicodeDecodeError):
+                    if is_last_line:
+                        print(
+                            "Skipped 1 incomplete trailing record in events.log",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        break
+                    raise
+
                 self.index[event["id"]] = (offset, length)
                 recovered_count += 1
                 offset += line_len
+                raw_line = next_line
 
         print(f"Recovered {recovered_count} events from events.log", flush=True)
         return recovered_count
