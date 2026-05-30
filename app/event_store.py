@@ -3,7 +3,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 IndexEntry = tuple[int, int]
 
@@ -36,3 +36,16 @@ class EventStore:
             self.index[event["id"]] = (offset, len(encoded))
 
         return event
+
+    def get(self, event_id: str) -> dict[str, Any] | None:
+        """Read one event directly from its indexed byte offset."""
+        entry = self.index.get(event_id)
+        if entry is None:
+            return None
+
+        offset, length = entry
+        with self.log_path.open("rb") as log_file:
+            log_file.seek(offset)
+            raw = log_file.read(length)
+
+        return cast(dict[str, Any], json.loads(raw.decode("utf-8")))
