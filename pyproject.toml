@@ -1,0 +1,14 @@
+[project]
+name = "append-only-event-store"
+version = "0.1.0"
+description = "Stage 8 append-only event store prototype"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0,<1.0.0",
+    "httpx>=0.27.0,<1.0.0",
+    "pytest>=8.0.0,<9.0.0",
+    "uvicorn[standard]>=0.30.0,<1.0.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
