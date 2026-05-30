@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 
@@ -82,3 +83,35 @@ def test_unicode_payload_round_trips_byte_for_byte(tmp_path, monkeypatch) -> Non
 
     assert response.status_code == 200
     assert response.json()["likerName"] == stored_event["likerName"]
+
+
+def test_stats_returns_total_and_bytes(tmp_path, monkeypatch) -> None:
+    log_path = tmp_path / "events.log"
+    store = EventStore(log_path)
+
+    async def append_events() -> None:
+        await store.append({"x": 1})
+        await store.append({"likerName": "Chidé 🎉"})
+
+    asyncio.run(append_events())
+    monkeypatch.setattr(main_module, "event_store", store)
+
+    with TestClient(main_module.app) as client:
+        response = client.get("/stats")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": len(store.index),
+        "bytes": os.path.getsize(log_path),
+    }
+
+
+def test_stats_with_empty_store_returns_zero_zero(tmp_path, monkeypatch) -> None:
+    store = EventStore(tmp_path / "events.log")
+    monkeypatch.setattr(main_module, "event_store", store)
+
+    with TestClient(main_module.app) as client:
+        response = client.get("/stats")
+
+    assert response.status_code == 200
+    assert response.json() == {"total": 0, "bytes": 0}
